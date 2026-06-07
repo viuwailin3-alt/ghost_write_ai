@@ -31,12 +31,32 @@ def health():
     return {"status": "healthy"}
 
 
+def _get_ai_client():
+    from openai import OpenAI
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_key:
+        return OpenAI(
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1",
+        ), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        base_url = os.getenv("OPENAI_BASE_URL")
+        client_kwargs = {"api_key": openai_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        return OpenAI(**client_kwargs), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    return None, None
+
+
 @app.post("/generate", response_model=GenerateResponse)
 def generate(request: GenerateRequest):
-    api_key = os.getenv("OPENAI_API_KEY")
+    client, model = _get_ai_client()
 
-    if not api_key:
-        # Stub response for local/dev use without an API key configured.
+    if not client:
         output = (
             f"[stub] Draft based on your prompt ({request.tone} tone):\n\n"
             f"{request.prompt.strip()}"
@@ -44,11 +64,8 @@ def generate(request: GenerateRequest):
         return GenerateResponse(prompt=request.prompt, output=output, model="stub")
 
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
         completion = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            model=model,
             messages=[
                 {
                     "role": "system",
