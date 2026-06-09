@@ -1,0 +1,28 @@
+
+2026-06-09T04:18:24.631125758Z stdout F [2026-06-09T04:18:24Z INFO ] Process terminated with exit code 11
+2026-06-09T04:18:24.623488087Z stderr F [error] BuildService - Build failed: Could not build the image.
+2026-06-09T04:18:23.9736129Z stdout F unknown: unknown error
+2026-06-09T04:18:23.973609933Z stdout F error: failed to solve: python:3.12-slim: failed to resolve source metadata for docker.io/library/python:3.12-slim: failed to copy: httpReadSeeker: failed open: unexpected status from GET request to http://localhost:5000/v2/library/python/manifests/sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203?ns=docker.io: 500 Internal Server Error
+2026-06-09T04:18:23.97360802Z stdout F --------------------
+2026-06-09T04:18:23.973606377Z stdout F    3 |     WORKDIR /app
+2026-06-09T04:18:23.97360478Z stdout F    2 |     
+2026-06-09T04:18:23.973602878Z stdout F    1 | >>> FROM python:3.12-slim
+2026-06-09T04:18:23.973599192Z stdout F --------------------
+2026-06-09T04:18:23.973571813Z stdout F Dockerfile:1
+2026-06-09T04:18:23.971512164Z stdout F ------
+2026-06-09T04:18:23.971509996Z stdout F  > [internal] load metadata for docker.io/library/python:3.12-slim:
+2026-06-09T04:18:23.97149967Z stdout F ------
+2026-06-09T04:18:23.94017596Z stdout F unknown: unknown error
+2026-06-09T04:18:23.940155951Z stdout F #2 ERROR: failed to copy: httpReadSeeker: failed open: unexpected status from GET request to http://localhost:5000/v2/library/python/manifests/sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203?ns=docker.io: 500 Internal Server Error
+2026-06-09T04:18:07.13074262Z stdout F #2 [internal] load metadata for docker.io/library/python:3.12-slim
+2026-06-09T04:18:07.13074149Z stdout F 
+2026-06-09T04:18:07.130739673Z stdout F #1 DONE 0.0s
+2026-06-09T04:18:07.13042873Z stdout F #1 transferring dockerfile: 306B done
+2026-06-09T04:18:07.130033756Z stdout F #1 [internal] load build definition from Dockerfile
+2026-06-09T04:18:06.805191499Z stderr F  * branch            9ca88975210666aaae5c53201f9c89b31cc2138e -> FETCH_HEAD
+2026-06-09T04:18:06.805180358Z stderr F From https://github.com/viuwailin3-alt/ghost_write_ai
+2026-06-09T04:18:06.541335407Z stderr F POST git-upload-pack (185 bytes)
+2026-06-09T04:18:06.192150439Z stdout F Initialized empty Git repository in /root/workspace/.git/
+2026-06-09T04:18:05.307768552Z stdout F [2026-06-09T04:18:05Z INFO ] Starting container entrypoint...
+2026-06-09T04:18:05.307767133Z stdout F [2026-06-09T04:18:05Z INFO ] Successfully fetched environment variables
+2026-06-09T04:18:05.307751484Z stdout F [2026-06-09T04:18:05Z INFO ] Securely fetching environment variables
