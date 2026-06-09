@@ -1,6 +1,8 @@
 import os
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -8,6 +10,8 @@ app = FastAPI(
     description="Lightweight AI writing API",
     version="1.0.0",
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 class GenerateRequest(BaseModel):
@@ -23,7 +27,7 @@ class GenerateResponse(BaseModel):
 
 @app.get("/")
 def root():
-    return {"service": "Ghost Write AI", "status": "ok"}
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")

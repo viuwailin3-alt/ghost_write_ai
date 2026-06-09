@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ghost Write AI</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e2e2e2;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: #888;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2a2a38;
+      border-radius: 14px;
+      padding: 28px;
+      width: 100%;
+      max-width: 720px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #a0a0b8;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    textarea {
+      width: 100%;
+      background: #12121a;
+      border: 1px solid #2e2e42;
+      border-radius: 8px;
+      color: #e2e2e2;
+      font-size: 0.97rem;
+      padding: 12px 14px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    textarea:focus {
+      border-color: #7c6af5;
+    }
+
+    .row {
+      display: flex;
+      gap: 14px;
+      margin-top: 18px;
+      align-items: flex-end;
+    }
+
+    .tone-wrap {
+      flex: 1;
+    }
+
+    select {
+      width: 100%;
+      background: #12121a;
+      border: 1px solid #2e2e42;
+      border-radius: 8px;
+      color: #e2e2e2;
+      font-size: 0.97rem;
+      padding: 11px 14px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    select:focus { border-color: #7c6af5; }
+
+    button {
+      background: linear-gradient(135deg, #7c6af5, #4f8ef5);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.97rem;
+      font-weight: 600;
+      padding: 11px 28px;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    button:hover { opacity: 0.88; }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .output-card {
+      margin-top: 24px;
+      display: none;
+    }
+
+    .output-card.visible { display: block; }
+
+    .output-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .model-badge {
+      background: #22223a;
+      border: 1px solid #35356a;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: #a78bfa;
+      padding: 3px 10px;
+    }
+
+    .copy-btn {
+      background: none;
+      border: 1px solid #2e2e42;
+      color: #a0a0b8;
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .copy-btn:hover { border-color: #7c6af5; color: #c4b5fd; }
+
+    .output-text {
+      background: #12121a;
+      border: 1px solid #2e2e42;
+      border-radius: 8px;
+      padding: 16px;
+      white-space: pre-wrap;
+      line-height: 1.7;
+      font-size: 0.97rem;
+      color: #d4d4e8;
+      min-height: 120px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-box {
+      margin-top: 16px;
+      background: #2a1212;
+      border: 1px solid #6b2a2a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #f87171;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .error-box.visible { display: block; }
+
+    .char-count {
+      text-align: right;
+      font-size: 0.78rem;
+      color: #555;
+      margin-top: 5px;
+    }
+
+    .char-count.warn { color: #f59e0b; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>✍️ Ghost Write AI</h1>
+    <p>AI-powered writing assistant — enter a prompt, pick a tone, get your draft.</p>
+  </div>
+
+  <div class="card">
+    <label for="prompt">Your Prompt</label>
+    <textarea id="prompt" rows="5" maxlength="4000"
+      placeholder="e.g. Write a product description for noise-cancelling headphones targeting remote workers..."></textarea>
+    <div class="char-count" id="charCount">0 / 4000</div>
+
+    <div class="row">
+      <div class="tone-wrap">
+        <label for="tone">Tone</label>
+        <select id="tone">
+          <option value="neutral">Neutral</option>
+          <option value="professional">Professional</option>
+          <option value="casual">Casual</option>
+          <option value="persuasive">Persuasive</option>
+          <option value="creative">Creative</option>
+          <option value="formal">Formal</option>
+          <option value="friendly">Friendly</option>
+          <option value="humorous">Humorous</option>
+        </select>
+      </div>
+      <button id="generateBtn" onclick="generate()">Generate</button>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="output-card" id="outputCard">
+      <div class="output-meta">
+        <label style="margin:0">Output</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="model-badge" id="modelBadge"></span>
+          <button class="copy-btn" onclick="copyOutput()">Copy</button>
+        </div>
+      </div>
+      <div class="output-text" id="outputText"></div>
+    </div>
+  </div>
+
+  <script>
+    const promptEl = document.getElementById('prompt');
+    const charCount = document.getElementById('charCount');
+
+    promptEl.addEventListener('input', () => {
+      const len = promptEl.value.length;
+      charCount.textContent = `${len} / 4000`;
+      charCount.className = 'char-count' + (len > 3500 ? ' warn' : '');
+    });
+
+    async function generate() {
+      const prompt = promptEl.value.trim();
+      const tone = document.getElementById('tone').value;
+      const btn = document.getElementById('generateBtn');
+      const errorBox = document.getElementById('errorBox');
+      const outputCard = document.getElementById('outputCard');
+
+      if (!prompt) {
+        showError('Please enter a prompt first.');
+        return;
+      }
+
+      errorBox.className = 'error-box';
+      outputCard.className = 'output-card';
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Generating…';
+
+      try {
+        const res = await fetch('/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, tone }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          showError(data.detail || 'Something went wrong. Please try again.');
+          return;
+        }
+
+        document.getElementById('outputText').textContent = data.output;
+        document.getElementById('modelBadge').textContent = data.model;
+        outputCard.className = 'output-card visible';
+        outputCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      } catch (err) {
+        showError('Network error — make sure the API is running.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Generate';
+      }
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.className = 'error-box visible';
+    }
+
+    async function copyOutput() {
+      const text = document.getElementById('outputText').textContent;
+      await navigator.clipboard.writeText(text);
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1800);
+    }
+
+    document.getElementById('prompt').addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') generate();
+    });
+  </script>
+
+</body>
+</html>
