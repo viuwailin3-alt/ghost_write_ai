@@ -13,6 +13,13 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+FREE_MODEL_FALLBACKS = [
+    "mistralai/mistral-7b-instruct:free",
+    "qwen/qwen3-8b:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "microsoft/phi-3-mini-128k-instruct:free",
+]
+
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
@@ -33,6 +40,19 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/status")
+def status():
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openrouter_key:
+        model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+        return {"provider": "openrouter", "model": model, "fallbacks": FREE_MODEL_FALLBACKS}
+    if openai_key:
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return {"provider": "openai", "model": model}
+    return {"provider": "stub", "model": "stub"}
 
 
 def _get_ai_client():
@@ -56,6 +76,15 @@ def _get_ai_client():
     return None, None
 
 
+def _try_completion(client, model: str, messages: list) -> tuple[str, str]:
+    completion = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=1024,
+    )
+    return completion.choices[0].message.content or "", completion.model
+
+
 @app.post("/generate", response_model=GenerateResponse)
 def generate(request: GenerateRequest):
     client, model = _get_ai_client()
@@ -67,23 +96,29 @@ def generate(request: GenerateRequest):
         )
         return GenerateResponse(prompt=request.prompt, output=output, model="stub")
 
-    try:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"You are a helpful writing assistant. Tone: {request.tone}.",
-                },
-                {"role": "user", "content": request.prompt},
-            ],
-            max_tokens=1024,
-        )
-        output = completion.choices[0].message.content or ""
-        return GenerateResponse(
-            prompt=request.prompt,
-            output=output,
-            model=completion.model,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AI provider error: {exc}") from exc
+    messages = [
+        {
+            "role": "system",
+            "content": f"You are a helpful writing assistant. Tone: {request.tone}.",
+        },
+        {"role": "user", "content": request.prompt},
+    ]
+
+    models_to_try = [model] + [m for m in FREE_MODEL_FALLBACKS if m != model]
+    last_error = None
+
+    for candidate in models_to_try:
+        try:
+            output, used_model = _try_completion(client, candidate, messages)
+            return GenerateResponse(prompt=request.prompt, output=output, model=used_model)
+        except Exception as exc:
+            err_str = str(exc)
+            if any(code in err_str for code in ["429", "404", "rate", "unavailable", "overloaded"]):
+                last_error = exc
+                continue
+            raise HTTPException(status_code=502, detail=f"AI provider error: {exc}") from exc
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"All models are currently unavailable. Last error: {last_error}",
+    )
