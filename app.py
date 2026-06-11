@@ -15,9 +15,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 FREE_MODEL_FALLBACKS = [
     "mistralai/mistral-7b-instruct:free",
+    "deepseek/deepseek-r1:free",
+    "deepseek/deepseek-chat-v3-0324:free",
     "qwen/qwen3-8b:free",
+    "google/gemma-3-27b-it:free",
     "meta-llama/llama-3.1-8b-instruct:free",
-    "microsoft/phi-3-mini-128k-instruct:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "openchat/openchat-7b:free",
 ]
 
 
