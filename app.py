@@ -1,16 +1,18 @@
 import os
 import time
+import json
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from typing import Optional
 
 app = FastAPI(
     title="Ghost Write AI",
-    description="Lightweight AI writing API",
-    version="1.0.0",
+    description="Lightweight AI writing API + Coding Agent",
+    version="2.0.0",
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -18,6 +20,34 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 _free_models_cache: list[str] = []
 _free_models_fetched_at: float = 0
 _CACHE_TTL = 300
+
+AGENT_SYSTEM_PROMPT = """You are an expert software engineer and coding agent. When given a task, you:
+
+1. PLAN the task step by step
+2. GENERATE complete, working code files
+3. EXPLAIN each part clearly
+
+Always respond in this exact JSON format:
+{
+  "plan": ["step 1", "step 2", "step 3"],
+  "files": [
+    {
+      "filename": "main.py",
+      "language": "python",
+      "description": "Main application file",
+      "content": "# full code here"
+    }
+  ],
+  "explanation": "Clear explanation of what was built and how to run it",
+  "next_steps": ["optional next step 1", "optional next step 2"]
+}
+
+Rules:
+- Always generate COMPLETE, RUNNABLE code (no placeholders like '# TODO')
+- Include ALL necessary files (requirements.txt, .env.example, README etc.)
+- Code must work immediately after copy-paste
+- If the user asks a follow-up question, update only the relevant parts
+- For complex projects, break into logical files"""
 
 
 def _fetch_free_models(api_key: str) -> list[str]:
@@ -52,9 +82,40 @@ class GenerateResponse(BaseModel):
     model: str
 
 
+class Message(BaseModel):
+    role: str
+    content: str
+
+
+class AgentRequest(BaseModel):
+    messages: list[Message]
+    task: Optional[str] = None
+
+
+class CodeFile(BaseModel):
+    filename: str
+    language: str
+    description: str
+    content: str
+
+
+class AgentResponse(BaseModel):
+    plan: list[str]
+    files: list[CodeFile]
+    explanation: str
+    next_steps: list[str]
+    model: str
+    raw: Optional[str] = None
+
+
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
+
+
+@app.get("/agent")
+def agent_page():
+    return FileResponse("static/agent.html")
 
 
 @app.get("/health")
@@ -76,82 +137,112 @@ def status():
     return {"provider": "stub", "model": "stub"}
 
 
-def _get_ai_client():
+def _get_client_and_models():
     from openai import OpenAI
 
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     if openrouter_key:
-        return OpenAI(
-            api_key=openrouter_key,
-            base_url="https://openrouter.ai/api/v1",
-        ), os.getenv("OPENROUTER_MODEL", ""), openrouter_key
+        client = OpenAI(api_key=openrouter_key, base_url="https://openrouter.ai/api/v1")
+        primary = os.getenv("OPENROUTER_MODEL", "")
+        free_models = _fetch_free_models(openrouter_key)
+        if primary and primary not in free_models:
+            models = [primary] + free_models
+        elif primary:
+            models = [primary] + [m for m in free_models if m != primary]
+        else:
+            models = free_models
+        return client, models
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         base_url = os.getenv("OPENAI_BASE_URL")
-        client_kwargs = {"api_key": openai_key}
+        kwargs = {"api_key": openai_key}
         if base_url:
-            client_kwargs["base_url"] = base_url
-        return OpenAI(**client_kwargs), os.getenv("OPENAI_MODEL", "gpt-4o-mini"), None
+            kwargs["base_url"] = base_url
+        client = OpenAI(**kwargs)
+        return client, [os.getenv("OPENAI_MODEL", "gpt-4o-mini")]
 
-    return None, None, None
+    return None, []
 
 
-def _try_completion(client, model: str, messages: list) -> tuple[str, str]:
+def _try_completion(client, model: str, messages: list, max_tokens: int = 1024):
     completion = client.chat.completions.create(
         model=model,
         messages=messages,
-        max_tokens=1024,
+        max_tokens=max_tokens,
     )
     return completion.choices[0].message.content or "", completion.model
 
 
-@app.post("/generate", response_model=GenerateResponse)
-def generate(request: GenerateRequest):
-    client, model, openrouter_key = _get_ai_client()
-
-    if not client:
-        output = (
-            f"[stub] Draft based on your prompt ({request.tone} tone):\n\n"
-            f"{request.prompt.strip()}"
-        )
-        return GenerateResponse(prompt=request.prompt, output=output, model="stub")
-
-    messages = [
-        {
-            "role": "system",
-            "content": f"You are a helpful writing assistant. Tone: {request.tone}.",
-        },
-        {"role": "user", "content": request.prompt},
-    ]
-
-    if openrouter_key:
-        free_models = _fetch_free_models(openrouter_key)
-        if model and model not in free_models:
-            models_to_try = [model] + free_models
-        elif model:
-            models_to_try = [model] + [m for m in free_models if m != model]
-        else:
-            models_to_try = free_models
-    else:
-        models_to_try = [model]
-
-    if not models_to_try:
-        raise HTTPException(status_code=503, detail="No AI models available. Please try again later.")
-
+def _run_with_fallback(client, models: list, messages: list, max_tokens: int = 1024):
+    if not models:
+        raise HTTPException(status_code=503, detail="No AI models available.")
     last_error = None
-    for candidate in models_to_try:
+    for model in models:
         try:
-            output, used_model = _try_completion(client, candidate, messages)
-            return GenerateResponse(prompt=request.prompt, output=output, model=used_model)
+            return _try_completion(client, model, messages, max_tokens)
         except Exception as exc:
-            err_str = str(exc)
-            if any(code in err_str for code in ["429", "404", "rate", "unavailable", "overloaded", "No endpoints"]):
+            err = str(exc)
+            if any(c in err for c in ["429", "404", "rate", "unavailable", "overloaded", "No endpoints"]):
                 last_error = exc
                 continue
             raise HTTPException(status_code=502, detail=f"AI provider error: {exc}") from exc
+    raise HTTPException(status_code=503, detail=f"All models unavailable. Last error: {last_error}")
 
-    raise HTTPException(
-        status_code=503,
-        detail=f"All {len(models_to_try)} models are currently unavailable. Please try again in a few minutes.",
-    )
+
+@app.post("/generate", response_model=GenerateResponse)
+def generate(request: GenerateRequest):
+    client, models = _get_client_and_models()
+    if not client:
+        output = f"[stub] Draft based on your prompt ({request.tone} tone):\n\n{request.prompt.strip()}"
+        return GenerateResponse(prompt=request.prompt, output=output, model="stub")
+
+    messages = [
+        {"role": "system", "content": f"You are a helpful writing assistant. Tone: {request.tone}."},
+        {"role": "user", "content": request.prompt},
+    ]
+    output, used_model = _run_with_fallback(client, models, messages)
+    return GenerateResponse(prompt=request.prompt, output=output, model=used_model)
+
+
+@app.post("/agent/chat", response_model=AgentResponse)
+def agent_chat(request: AgentRequest):
+    client, models = _get_client_and_models()
+
+    if not client:
+        return AgentResponse(
+            plan=["Stub mode — no API key configured"],
+            files=[CodeFile(filename="example.py", language="python", description="Example stub", content='print("Hello from Ghost Write AI Agent!")')],
+            explanation="Configure OPENROUTER_API_KEY to enable full agent capabilities.",
+            next_steps=["Add your OpenRouter API key"],
+            model="stub",
+        )
+
+    history = [{"role": m.role, "content": m.content} for m in request.messages]
+    system_msg = {"role": "system", "content": AGENT_SYSTEM_PROMPT}
+    messages = [system_msg] + history
+
+    raw, used_model = _run_with_fallback(client, models, messages, max_tokens=4000)
+
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        json_str = raw[start:end] if start != -1 else raw
+        data = json.loads(json_str)
+        files = [CodeFile(**f) for f in data.get("files", [])]
+        return AgentResponse(
+            plan=data.get("plan", []),
+            files=files,
+            explanation=data.get("explanation", ""),
+            next_steps=data.get("next_steps", []),
+            model=used_model,
+        )
+    except Exception:
+        return AgentResponse(
+            plan=["Task completed"],
+            files=[],
+            explanation=raw,
+            next_steps=[],
+            model=used_model,
+            raw=raw,
+        )

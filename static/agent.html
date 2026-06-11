@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ghost Write AI — Agent</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d0d14;
+      color: #e2e2e2;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      background: #13131f;
+      border-bottom: 1px solid #1e1e30;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+
+    .logo {
+      font-size: 1.1rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .mode-badge {
+      background: #1e1e36;
+      border: 1px solid #3b3b6b;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      color: #a78bfa;
+      padding: 2px 10px;
+      font-weight: 600;
+    }
+
+    .header-nav a {
+      color: #888;
+      text-decoration: none;
+      font-size: 0.85rem;
+      padding: 5px 12px;
+      border-radius: 6px;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .header-nav a:hover { background: #1e1e30; color: #ccc; }
+
+    /* Messages */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .msg { display: flex; gap: 12px; max-width: 900px; margin: 0 auto; width: 100%; }
+    .msg.user { flex-direction: row-reverse; }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .msg.user .avatar { background: #2d2060; }
+    .msg.agent .avatar { background: #1a2a4a; }
+
+    .bubble {
+      background: #16161f;
+      border: 1px solid #22223a;
+      border-radius: 12px;
+      padding: 14px 16px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .msg.user .bubble {
+      background: #1a1535;
+      border-color: #2e2060;
+      text-align: left;
+    }
+
+    /* Plan */
+    .plan-section { margin-bottom: 14px; }
+    .plan-section h4 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #a78bfa;
+      margin-bottom: 8px;
+    }
+
+    .plan-steps { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+    .plan-steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 0.9rem;
+      color: #c4c4dc;
+    }
+
+    .step-num {
+      background: #2a1f5e;
+      color: #a78bfa;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* Files */
+    .files-section { margin-bottom: 14px; }
+    .files-section h4 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #60a5fa;
+      margin-bottom: 8px;
+    }
+
+    .file-block {
+      background: #0e0e1a;
+      border: 1px solid #1e2a40;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .file-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #131320;
+      border-bottom: 1px solid #1e2a40;
+    }
+
+    .file-name {
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .file-desc {
+      font-size: 0.75rem;
+      color: #666;
+      margin-left: 8px;
+    }
+
+    .file-actions { display: flex; gap: 6px; }
+
+    .btn-sm {
+      background: #1e2a40;
+      border: 1px solid #2e3a54;
+      color: #a0b4cc;
+      font-size: 0.73rem;
+      padding: 3px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-sm:hover { background: #253348; color: #c0d4ec; }
+
+    .file-block pre {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.55;
+    }
+
+    .file-block code { background: none !important; padding: 0 !important; }
+
+    /* Explanation */
+    .explanation {
+      font-size: 0.92rem;
+      line-height: 1.7;
+      color: #c8c8dc;
+      margin-bottom: 12px;
+    }
+
+    /* Next steps */
+    .next-steps { margin-top: 10px; }
+    .next-steps h4 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #34d399;
+      margin-bottom: 6px;
+    }
+
+    .next-steps ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .next-steps li { font-size: 0.87rem; color: #9ce8c5; padding-left: 12px; position: relative; }
+    .next-steps li::before { content: "→"; position: absolute; left: 0; color: #34d399; }
+
+    /* Model badge */
+    .model-info {
+      margin-top: 10px;
+      font-size: 0.72rem;
+      color: #444;
+    }
+
+    .model-info span {
+      background: #1a1a2e;
+      border: 1px solid #2a2a48;
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: #666;
+    }
+
+    /* Raw text fallback */
+    .raw-text {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: #c8c8dc;
+      white-space: pre-wrap;
+    }
+
+    /* Input area */
+    .input-area {
+      background: #13131f;
+      border-top: 1px solid #1e1e30;
+      padding: 16px 20px;
+      flex-shrink: 0;
+    }
+
+    .input-wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    textarea#userInput {
+      flex: 1;
+      background: #0d0d14;
+      border: 1px solid #2a2a42;
+      border-radius: 10px;
+      color: #e2e2e2;
+      font-size: 0.95rem;
+      padding: 11px 14px;
+      resize: none;
+      outline: none;
+      font-family: inherit;
+      max-height: 140px;
+      min-height: 46px;
+      transition: border-color 0.2s;
+      line-height: 1.5;
+    }
+
+    textarea#userInput:focus { border-color: #7c6af5; }
+
+    .send-btn {
+      background: linear-gradient(135deg, #7c6af5, #4f8ef5);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      width: 46px;
+      height: 46px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: opacity 0.2s;
+      font-size: 1.2rem;
+    }
+
+    .send-btn:hover { opacity: 0.85; }
+    .send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Welcome */
+    .welcome {
+      max-width: 600px;
+      margin: 40px auto 0;
+      text-align: center;
+      padding: 0 16px;
+    }
+
+    .welcome h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+
+    .welcome p { color: #888; font-size: 0.92rem; line-height: 1.6; margin-bottom: 20px; }
+
+    .examples { display: flex; flex-direction: column; gap: 8px; }
+
+    .example-btn {
+      background: #16161f;
+      border: 1px solid #22223a;
+      border-radius: 8px;
+      color: #c4c4dc;
+      font-size: 0.875rem;
+      padding: 10px 14px;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .example-btn:hover { border-color: #7c6af5; background: #1a1a2e; color: #d4d4ec; }
+
+    /* Typing indicator */
+    .typing { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+    .dot {
+      width: 7px; height: 7px;
+      background: #5a5a8a;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a2a42; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <span class="logo">✍️ Ghost Write AI</span>
+    <span class="mode-badge">Agent Mode</span>
+  </div>
+  <nav class="header-nav">
+    <a href="/">Simple Write</a>
+  </nav>
+</div>
+
+<div class="messages" id="messages">
+  <div class="welcome" id="welcome">
+    <h2>🤖 Coding Agent</h2>
+    <p>ကျွန်တော့်ကို task ပေးလိုက်ပါ — code တွေ file တွေ အကုန် generate ပေးမယ်။<br>Telegram bot, web scraper, API, Discord bot — ဘာမဆို ပြောပါ။</p>
+    <div class="examples">
+      <button class="example-btn" onclick="useExample(this)">🤖 Telegram bot တစ်ခု ဆောက်ပေး — user ပြောတာကို echo ပြန်ပေးတဲ့ bot</button>
+      <button class="example-btn" onclick="useExample(this)">🌐 Python web scraper ဆောက်ပေး — URL ထည့်ရင် title, links, text ထုတ်ပေးတဲ့</button>
+      <button class="example-btn" onclick="useExample(this)">🔗 REST API ဆောက်ပေး — todo list CRUD (FastAPI + SQLite)</button>
+      <button class="example-btn" onclick="useExample(this)">⏰ Discord bot ဆောက်ပေး — scheduled message ပို့တဲ့ bot</button>
+    </div>
+  </div>
+</div>
+
+<div class="input-area">
+  <div class="input-wrap">
+    <textarea id="userInput" placeholder="ဘာ build လုပ်ချင်လဲ ပြောပါ... (Shift+Enter for new line)" rows="1"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send (Enter)">➤</button>
+  </div>
+</div>
+
+<script>
+  const messages = [];
+  let isLoading = false;
+
+  const textarea = document.getElementById('userInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const messagesEl = document.getElementById('messages');
+
+  textarea.addEventListener('input', () => {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px';
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  function useExample(btn) {
+    const text = btn.textContent.replace(/^[^\w]+/, '').trim();
+    textarea.value = text;
+    textarea.dispatchEvent(new Event('input'));
+    sendMessage();
+  }
+
+  function addUserMessage(text) {
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
+
+    const div = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = `
+      <div class="avatar">👤</div>
+      <div class="bubble">${escapeHtml(text)}</div>
+    `;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function addTyping() {
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
+
+    const div = document.createElement('div');
+    div.className = 'msg agent';
+    div.id = 'typing-indicator';
+    div.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="bubble">
+        <div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+    `;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function removeTyping() {
+    const t = document.getElementById('typing-indicator');
+    if (t) t.remove();
+  }
+
+  function addAgentMessage(data) {
+    const div = document.createElement('div');
+    div.className = 'msg agent';
+
+    let html = `<div class="avatar">🤖</div><div class="bubble">`;
+
+    if (data.raw && !data.files.length && !data.plan.length) {
+      html += `<div class="raw-text">${escapeHtml(data.raw)}</div>`;
+    } else {
+      if (data.plan && data.plan.length) {
+        html += `<div class="plan-section">
+          <h4>📋 Plan</h4>
+          <ul class="plan-steps">
+            ${data.plan.map((s, i) => `<li><span class="step-num">${i+1}</span><span>${escapeHtml(s)}</span></li>`).join('')}
+          </ul>
+        </div>`;
+      }
+
+      if (data.files && data.files.length) {
+        html += `<div class="files-section"><h4>📁 Generated Files (${data.files.length})</h4>`;
+        data.files.forEach((f, idx) => {
+          const escapedContent = escapeHtml(f.content);
+          html += `
+            <div class="file-block">
+              <div class="file-header">
+                <div>
+                  <span class="file-name">${escapeHtml(f.filename)}</span>
+                  <span class="file-desc">${escapeHtml(f.description)}</span>
+                </div>
+                <div class="file-actions">
+                  <button class="btn-sm" onclick="copyFile(${idx})">Copy</button>
+                  <button class="btn-sm" onclick="downloadFile(${idx})">Download</button>
+                </div>
+              </div>
+              <pre><code id="file-${idx}" class="language-${f.language}">${escapedContent}</code></pre>
+            </div>`;
+        });
+        html += `</div>`;
+      }
+
+      if (data.explanation) {
+        html += `<div class="explanation">${escapeHtml(data.explanation)}</div>`;
+      }
+
+      if (data.next_steps && data.next_steps.length) {
+        html += `<div class="next-steps"><h4>✅ Next Steps</h4><ul>
+          ${data.next_steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+        </ul></div>`;
+      }
+    }
+
+    html += `<div class="model-info">Model: <span>${escapeHtml(data.model)}</span></div>`;
+    html += `</div></div>`;
+
+    div.innerHTML = html;
+    div._files = data.files;
+    messagesEl.appendChild(div);
+
+    div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+    scrollBottom();
+    return div;
+  }
+
+  async function sendMessage() {
+    const text = textarea.value.trim();
+    if (!text || isLoading) return;
+
+    isLoading = true;
+    sendBtn.disabled = true;
+    textarea.value = '';
+    textarea.style.height = 'auto';
+
+    messages.push({ role: 'user', content: text });
+    addUserMessage(text);
+    addTyping();
+
+    try {
+      const res = await fetch('/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      });
+
+      const data = await res.json();
+      removeTyping();
+
+      if (!res.ok) {
+        addErrorMessage(data.detail || 'Something went wrong.');
+        messages.pop();
+        return;
+      }
+
+      const agentDiv = addAgentMessage(data);
+      agentDiv._files = data.files;
+
+      const assistantContent = data.explanation || data.raw || JSON.stringify(data);
+      messages.push({ role: 'assistant', content: assistantContent });
+
+    } catch (err) {
+      removeTyping();
+      addErrorMessage('Network error — check your connection.');
+      messages.pop();
+    } finally {
+      isLoading = false;
+      sendBtn.disabled = false;
+      textarea.focus();
+    }
+  }
+
+  function addErrorMessage(msg) {
+    const div = document.createElement('div');
+    div.className = 'msg agent';
+    div.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="bubble" style="border-color:#6b2a2a;background:#1a0e0e;color:#f87171;font-size:0.9rem;">${escapeHtml(msg)}</div>
+    `;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function copyFile(idx) {
+    const code = document.getElementById(`file-${idx}`);
+    if (!code) return;
+    navigator.clipboard.writeText(code.innerText).then(() => {
+      const btns = document.querySelectorAll('.btn-sm');
+      btns.forEach(b => { if (b.textContent === 'Copy') b.textContent = '✓ Copied'; });
+      setTimeout(() => btns.forEach(b => { if (b.textContent === '✓ Copied') b.textContent = 'Copy'; }), 1800);
+    });
+  }
+
+  function downloadFile(idx) {
+    const code = document.getElementById(`file-${idx}`);
+    const header = code?.closest('.file-block')?.querySelector('.file-name');
+    if (!code || !header) return;
+    const filename = header.textContent;
+    const blob = new Blob([code.innerText], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/\n/g, '<br>');
+  }
+
+  function scrollBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+</script>
+
+</body>
+</html>
