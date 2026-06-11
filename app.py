@@ -1,5 +1,7 @@
 import os
+import time
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,16 +15,30 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-FREE_MODEL_FALLBACKS = [
-    "mistralai/mistral-7b-instruct:free",
-    "deepseek/deepseek-r1:free",
-    "deepseek/deepseek-chat-v3-0324:free",
-    "qwen/qwen3-8b:free",
-    "google/gemma-3-27b-it:free",
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "nousresearch/hermes-3-llama-3.1-405b:free",
-    "openchat/openchat-7b:free",
-]
+_free_models_cache: list[str] = []
+_free_models_fetched_at: float = 0
+_CACHE_TTL = 300
+
+
+def _fetch_free_models(api_key: str) -> list[str]:
+    global _free_models_cache, _free_models_fetched_at
+    now = time.time()
+    if _free_models_cache and (now - _free_models_fetched_at) < _CACHE_TTL:
+        return _free_models_cache
+    try:
+        resp = httpx.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=8,
+        )
+        data = resp.json().get("data", [])
+        free = [m["id"] for m in data if str(m.get("id", "")).endswith(":free")]
+        if free:
+            _free_models_cache = free
+            _free_models_fetched_at = now
+    except Exception:
+        pass
+    return _free_models_cache
 
 
 class GenerateRequest(BaseModel):
@@ -51,8 +67,9 @@ def status():
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
     if openrouter_key:
-        model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-        return {"provider": "openrouter", "model": model, "fallbacks": FREE_MODEL_FALLBACKS}
+        model = os.getenv("OPENROUTER_MODEL", "auto")
+        free_models = _fetch_free_models(openrouter_key)
+        return {"provider": "openrouter", "primary_model": model, "available_free_models": free_models[:10]}
     if openai_key:
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         return {"provider": "openai", "model": model}
@@ -67,7 +84,7 @@ def _get_ai_client():
         return OpenAI(
             api_key=openrouter_key,
             base_url="https://openrouter.ai/api/v1",
-        ), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+        ), os.getenv("OPENROUTER_MODEL", ""), openrouter_key
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
@@ -75,9 +92,9 @@ def _get_ai_client():
         client_kwargs = {"api_key": openai_key}
         if base_url:
             client_kwargs["base_url"] = base_url
-        return OpenAI(**client_kwargs), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return OpenAI(**client_kwargs), os.getenv("OPENAI_MODEL", "gpt-4o-mini"), None
 
-    return None, None
+    return None, None, None
 
 
 def _try_completion(client, model: str, messages: list) -> tuple[str, str]:
@@ -91,7 +108,7 @@ def _try_completion(client, model: str, messages: list) -> tuple[str, str]:
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(request: GenerateRequest):
-    client, model = _get_ai_client()
+    client, model, openrouter_key = _get_ai_client()
 
     if not client:
         output = (
@@ -108,21 +125,33 @@ def generate(request: GenerateRequest):
         {"role": "user", "content": request.prompt},
     ]
 
-    models_to_try = [model] + [m for m in FREE_MODEL_FALLBACKS if m != model]
-    last_error = None
+    if openrouter_key:
+        free_models = _fetch_free_models(openrouter_key)
+        if model and model not in free_models:
+            models_to_try = [model] + free_models
+        elif model:
+            models_to_try = [model] + [m for m in free_models if m != model]
+        else:
+            models_to_try = free_models
+    else:
+        models_to_try = [model]
 
+    if not models_to_try:
+        raise HTTPException(status_code=503, detail="No AI models available. Please try again later.")
+
+    last_error = None
     for candidate in models_to_try:
         try:
             output, used_model = _try_completion(client, candidate, messages)
             return GenerateResponse(prompt=request.prompt, output=output, model=used_model)
         except Exception as exc:
             err_str = str(exc)
-            if any(code in err_str for code in ["429", "404", "rate", "unavailable", "overloaded"]):
+            if any(code in err_str for code in ["429", "404", "rate", "unavailable", "overloaded", "No endpoints"]):
                 last_error = exc
                 continue
             raise HTTPException(status_code=502, detail=f"AI provider error: {exc}") from exc
 
     raise HTTPException(
-        status_code=502,
-        detail=f"All models are currently unavailable. Last error: {last_error}",
+        status_code=503,
+        detail=f"All {len(models_to_try)} models are currently unavailable. Please try again in a few minutes.",
     )
