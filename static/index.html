@@ -265,6 +265,7 @@
       const btn = document.getElementById('generateBtn');
       const errorBox = document.getElementById('errorBox');
       const outputCard = document.getElementById('outputCard');
+      const outputText = document.getElementById('outputText');
 
       if (!prompt) {
         showError('Please enter a prompt first.');
@@ -272,31 +273,57 @@
       }
 
       errorBox.className = 'error-box';
-      outputCard.className = 'output-card';
+      outputCard.className = 'output-card visible';
+      outputText.textContent = '';
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>Generating…';
 
       try {
-        const res = await fetch('/generate', {
+        const res = await fetch('/generate/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt, tone }),
         });
 
-        const data = await res.json();
-
         if (!res.ok) {
+          const data = await res.json();
           showError(data.detail || 'Something went wrong. Please try again.');
+          outputCard.className = 'output-card';
           return;
         }
 
-        document.getElementById('outputText').textContent = data.output;
-        document.getElementById('modelBadge').textContent = data.model;
-        outputCard.className = 'output-card visible';
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
         outputCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'model') {
+                document.getElementById('modelBadge').textContent = event.model;
+              } else if (event.type === 'token') {
+                outputText.textContent += event.text;
+              } else if (event.type === 'error') {
+                showError(event.message || 'Something went wrong.');
+              }
+            } catch (_) {}
+          }
+        }
 
       } catch (err) {
         showError('Network error — make sure the API is running.');
+        outputCard.className = 'output-card';
       } finally {
         btn.disabled = false;
         btn.innerHTML = 'Generate';

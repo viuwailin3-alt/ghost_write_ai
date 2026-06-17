@@ -4,7 +4,7 @@ import json
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -190,6 +190,28 @@ def _run_with_fallback(client, models: list, messages: list, max_tokens: int = 1
     raise HTTPException(status_code=503, detail=f"All models unavailable. Last error: {last_error}")
 
 
+def _stream_with_fallback(client, models: list, messages: list, max_tokens: int = 1024):
+    if not models:
+        raise HTTPException(status_code=503, detail="No AI models available.")
+    last_error = None
+    for model in models:
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            return stream, model
+        except Exception as exc:
+            err = str(exc)
+            if any(c in err for c in ["429", "404", "rate", "unavailable", "overloaded", "No endpoints"]):
+                last_error = exc
+                continue
+            raise HTTPException(status_code=502, detail=f"AI provider error: {exc}") from exc
+    raise HTTPException(status_code=503, detail=f"All models unavailable. Last error: {last_error}")
+
+
 @app.post("/generate", response_model=GenerateResponse)
 def generate(request: GenerateRequest):
     client, models = _get_client_and_models()
@@ -203,6 +225,39 @@ def generate(request: GenerateRequest):
     ]
     output, used_model = _run_with_fallback(client, models, messages)
     return GenerateResponse(prompt=request.prompt, output=output, model=used_model)
+
+
+@app.post("/generate/stream")
+def generate_stream(request: GenerateRequest):
+    client, models = _get_client_and_models()
+
+    if not client:
+        def stub_gen():
+            text = f"[stub] Draft based on your prompt ({request.tone} tone):\n\n{request.prompt.strip()}"
+            yield f"data: {json.dumps({'type': 'model', 'model': 'stub'})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return StreamingResponse(stub_gen(), media_type="text/event-stream")
+
+    messages = [
+        {"role": "system", "content": f"You are a helpful writing assistant. Tone: {request.tone}."},
+        {"role": "user", "content": request.prompt},
+    ]
+
+    stream, used_model = _stream_with_fallback(client, models, messages)
+
+    def event_gen():
+        yield f"data: {json.dumps({'type': 'model', 'model': used_model})}\n\n"
+        try:
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    yield f"data: {json.dumps({'type': 'token', 'text': delta.content})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
 @app.post("/agent/chat", response_model=AgentResponse)
