@@ -239,6 +239,60 @@
       color: #666;
     }
 
+    /* GitHub push bar */
+    .github-bar {
+      margin-top: 14px;
+      background: #0e1a14;
+      border: 1px solid #1a3a28;
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .github-bar input {
+      flex: 1;
+      min-width: 180px;
+      background: #0a120e;
+      border: 1px solid #1e3a2a;
+      border-radius: 6px;
+      color: #a0e8b8;
+      font-size: 0.85rem;
+      padding: 6px 10px;
+      outline: none;
+      font-family: 'Courier New', monospace;
+    }
+
+    .github-bar input:focus { border-color: #34d399; }
+    .github-bar input::placeholder { color: #2e6044; }
+
+    .push-btn {
+      background: linear-gradient(135deg, #166534, #14532d);
+      border: 1px solid #22c55e44;
+      color: #86efac;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.2s;
+    }
+
+    .push-btn:hover { opacity: 0.85; }
+    .push-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .push-result {
+      font-size: 0.8rem;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .push-result.ok { color: #4ade80; }
+    .push-result.err { color: #f87171; }
+
     /* Raw text fallback */
     .raw-text {
       font-size: 0.9rem;
@@ -501,15 +555,90 @@
     }
 
     html += `<div class="model-info">Model: <span>${escapeHtml(data.model)}</span></div>`;
+
+    if (data.files && data.files.length) {
+      const uid = Date.now();
+      html += `
+        <div class="github-bar" id="ghbar-${uid}">
+          <span style="font-size:0.82rem;color:#4ade80;white-space:nowrap;">⬆ Push to GitHub</span>
+          <input id="ghrepo-${uid}" type="text" placeholder="owner/repo  (e.g. viuwailin3-alt/ghost_write_ai)" />
+          <button class="push-btn" onclick="pushToGitHub('${uid}')">Push</button>
+          <div class="push-result" id="ghresult-${uid}"></div>
+        </div>`;
+    }
+
     html += `</div></div>`;
 
     div.innerHTML = html;
     div._files = data.files;
+    div._uid = Date.now();
     messagesEl.appendChild(div);
 
     div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     scrollBottom();
     return div;
+  }
+
+  async function pushToGitHub(uid) {
+    const repoInput = document.getElementById(`ghrepo-${uid}`);
+    const resultEl = document.getElementById(`ghresult-${uid}`);
+    const btn = document.querySelector(`#ghbar-${uid} .push-btn`);
+    const repo = repoInput.value.trim();
+
+    if (!repo || !repo.includes('/')) {
+      resultEl.textContent = '⚠ owner/repo format နဲ့ ထည့်ပါ (e.g. viuwailin3-alt/ghost_write_ai)';
+      resultEl.className = 'push-result err';
+      return;
+    }
+
+    const allFiles = [];
+    document.querySelectorAll('pre code[id^="file-"]').forEach(el => {
+      const header = el.closest('.file-block')?.querySelector('.file-name');
+      const langClass = [...el.classList].find(c => c.startsWith('language-')) || 'language-text';
+      if (header) {
+        allFiles.push({
+          filename: header.textContent.trim(),
+          language: langClass.replace('language-', ''),
+          description: el.closest('.file-block')?.querySelector('.file-desc')?.textContent || '',
+          content: el.innerText,
+        });
+      }
+    });
+
+    if (!allFiles.length) {
+      resultEl.textContent = '⚠ Push လုပ်မဲ့ file မတွေ့ဘူး';
+      resultEl.className = 'push-result err';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Pushing…';
+    resultEl.textContent = '';
+    resultEl.className = 'push-result';
+
+    try {
+      const res = await fetch('/github/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo, files: allFiles, commit_message: 'feat: add generated code from Ghost Write AI' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        resultEl.className = 'push-result ok';
+        resultEl.innerHTML = `✅ ${data.message}${data.commit_url ? ` — <a href="${data.commit_url}" target="_blank" style="color:#4ade80">commit ကြည့်</a>` : ''}`;
+        btn.textContent = '✓ Pushed';
+      } else {
+        resultEl.textContent = `❌ ${data.detail || 'Push မအောင်မြင်ဘူး'}`;
+        resultEl.className = 'push-result err';
+        btn.disabled = false;
+        btn.textContent = 'Push';
+      }
+    } catch (err) {
+      resultEl.textContent = '❌ Network error';
+      resultEl.className = 'push-result err';
+      btn.disabled = false;
+      btn.textContent = 'Push';
+    }
   }
 
   async function sendMessage() {

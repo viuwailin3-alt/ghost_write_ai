@@ -260,6 +260,78 @@ def generate_stream(request: GenerateRequest):
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
+class GitHubPushRequest(BaseModel):
+    repo: str = Field(..., description="owner/repo format")
+    files: list[CodeFile]
+    commit_message: str = Field(default="feat: add generated code from Ghost Write AI")
+    branch: str = Field(default="main")
+
+
+class GitHubPushResponse(BaseModel):
+    success: bool
+    message: str
+    commit_url: Optional[str] = None
+    pushed_files: list[str] = []
+
+
+@app.post("/github/push", response_model=GitHubPushResponse)
+def github_push(request: GitHubPushRequest):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="GITHUB_TOKEN not configured.")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    pushed = []
+    last_commit_url = None
+
+    for f in request.files:
+        path = f.filename
+        url = f"https://api.github.com/repos/{request.repo}/contents/{path}"
+
+        sha = None
+        try:
+            existing = httpx.get(url, headers=headers, params={"ref": request.branch}, timeout=10)
+            if existing.status_code == 200:
+                sha = existing.json().get("sha")
+        except Exception:
+            pass
+
+        import base64
+        content_b64 = base64.b64encode(f.content.encode("utf-8")).decode("utf-8")
+
+        payload: dict = {
+            "message": request.commit_message,
+            "content": content_b64,
+            "branch": request.branch,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        try:
+            resp = httpx.put(url, headers=headers, json=payload, timeout=15)
+            if resp.status_code in (200, 201):
+                pushed.append(path)
+                last_commit_url = resp.json().get("commit", {}).get("html_url")
+            else:
+                raise HTTPException(status_code=502, detail=f"GitHub error for {path}: {resp.text}")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to push {path}: {exc}") from exc
+
+    return GitHubPushResponse(
+        success=True,
+        message=f"Pushed {len(pushed)} file(s) to {request.repo}",
+        commit_url=last_commit_url,
+        pushed_files=pushed,
+    )
+
+
 @app.post("/agent/chat", response_model=AgentResponse)
 def agent_chat(request: AgentRequest):
     client, models = _get_client_and_models()
